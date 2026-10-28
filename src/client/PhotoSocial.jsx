@@ -113,6 +113,13 @@ function CommentsSheet({ photo, liveTick, onChange, onClose }) {
     };
   }, [photo.id, liveTick]);
 
+  // iOS shows the page through its see-through keyboard toolbar, past where
+  // fixed layers are drawn, so hide the page while the panel is open.
+  useEffect(() => {
+    document.documentElement.classList.add("comments-open");
+    return () => document.documentElement.classList.remove("comments-open");
+  }, []);
+
   // Open on the newest comment, and follow new top-level comments you post.
   useEffect(() => {
     const el = listRef.current;
