@@ -244,6 +244,19 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     }, SLIDE_MS);
   };
 
+  // Turn the browser's own bars black while the viewer is open.
+  useEffect(() => {
+    const root = document.documentElement;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const prevColor = meta?.getAttribute("content");
+    root.classList.add("lightbox-open");
+    meta?.setAttribute("content", "#0A0A0A");
+    return () => {
+      root.classList.remove("lightbox-open");
+      if (meta && prevColor) meta.setAttribute("content", prevColor);
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") return onClose();
