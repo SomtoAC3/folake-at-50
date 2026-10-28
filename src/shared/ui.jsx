@@ -367,7 +367,9 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
   ].filter(Boolean);
 
   // Pulling down shrinks the photo a little and fades the backdrop; the
-  // buttons and comments bar get out of the way until it settles.
+  // buttons and comments bar get out of the way until it settles. At rest the
+  // backdrop is solid: iOS Safari tints its bars from a fixed overlay's
+  // colour, but only when that colour is opaque.
   const pull = Math.max(0, Math.min(dragY / 400, 1));
   const dropStyle = {
     transform: dragY ? `translateY(${dragY}px) scale(${1 - pull * 0.15})` : "none",
@@ -384,7 +386,7 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
       aria-modal="true"
       aria-label={alt}
       className="lightbox fixed inset-0 z-[100]"
-      style={{ background: `rgba(10, 10, 10, ${closing ? 0 : 0.96 * (1 - pull * 0.8)})`, transition: dragY && !closing ? "none" : `background-color ${CLOSE_MS}ms` }}
+      style={{ background: `rgba(10, 10, 10, ${closing ? 0 : dragY ? 0.96 * (1 - pull * 0.8) : 1})`, transition: dragY && !closing ? "none" : `background-color ${CLOSE_MS}ms` }}
       onClick={onClose}
     >
       <div
