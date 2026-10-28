@@ -252,7 +252,7 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     root.classList.add("lightbox-open");
     meta?.setAttribute("content", "#0A0A0A");
     return () => {
-      root.classList.remove("lightbox-open");
+      root.classList.remove("lightbox-open", "lightbox-pulling");
       if (meta && prevColor) meta.setAttribute("content", prevColor);
     };
   }, []);
@@ -273,6 +273,12 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+
+  // The page is hidden behind the viewer (see index.css) except while it's
+  // being pulled down to reveal it.
+  useEffect(() => {
+    document.documentElement.classList.toggle("lightbox-pulling", dragY > 0 || closing);
+  }, [dragY, closing]);
 
   // The first few pixels decide whether a swipe is sideways (change photo) or
   // downwards (close). A second finger (pinch) or a zoomed photo cancels it.
@@ -375,7 +381,8 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     transform: dragY ? `translateY(${dragY}px) scale(${1 - pull * 0.15})` : "none",
     transition: dragY && !closing ? "none" : `transform ${closing ? CLOSE_MS : 200}ms ${closing ? "ease-in" : "ease-out"}`,
   };
-  const chrome = { opacity: dragY > 0 || closing ? 0 : 1, transition: "opacity 0.15s" };
+  const pulling = dragY > 0 || closing;
+  const chrome = { opacity: pulling ? 0 : 1, transition: "opacity 0.15s" };
 
   const arrow = "hidden sm:flex absolute top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full";
   const arrowStyle = { ...chrome, background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" };
