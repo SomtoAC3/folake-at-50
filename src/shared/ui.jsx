@@ -203,27 +203,39 @@ export function ErrorNote({ message }) {
 // With `video`, it plays the clip with the browser's own controls instead.
 // `children`, when given, replaces the caption block at the bottom (the
 // gallery puts its hearts and comments there). Clicks inside it don't close.
-// With `onPrev`/`onNext`, swiping sideways (or the arrow keys) moves between
-// photos; the photo follows the finger and slides in from that side.
-export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, onNext, children }) {
+// With `prev`/`next` ({ src, alt, video }) and `onPrev`/`onNext`, the photos
+// either side sit just off screen: dragging sideways pulls them in, and on
+// release the strip slides the rest of the way before the photo changes.
+const SLIDE_MS = 280;
+const PANEL_GAP = 16;
+
+export function Lightbox({ src, alt, caption, video = false, onClose, prev, next, onPrev, onNext, children }) {
   // Zoom belongs to one photo, so moving to the next starts unzoomed.
   const [zoomedSrc, setZoomedSrc] = useState(null);
   const zoomed = zoomedSrc === src;
+  const [firstSrc] = useState(src);
   const [dragX, setDragX] = useState(0);
-  const [enterFrom, setEnterFrom] = useState(null);
+  // { dir, from, done }: the strip is sliding (or has slid) away from `from`.
+  // It stays put until the new photo arrives, so there's never a jump back.
+  const [slide, setSlide] = useState(null);
+  const sliding = slide && slide.from === src ? slide : null;
   const scrollRef = useRef(null);
   const imgRef = useRef(null);
   const touch = useRef(null);
   const nav = useRef({});
   useEffect(() => {
-    nav.current = { onPrev, onNext, zoomed };
+    nav.current = { onPrev, onNext, canPrev: Boolean(prev && onPrev), canNext: Boolean(next && onNext), zoomed, src, sliding };
   });
 
   const go = (dir) => {
-    const fn = dir > 0 ? nav.current.onNext : nav.current.onPrev;
-    if (!fn || nav.current.zoomed) return;
-    setEnterFrom(dir > 0 ? "right" : "left");
-    fn();
+    const n = nav.current;
+    if (n.zoomed || n.sliding || !(dir > 0 ? n.canNext : n.canPrev)) return;
+    const from = n.src;
+    setSlide({ dir, from, done: false });
+    setTimeout(() => {
+      setSlide({ dir, from, done: true });
+      (dir > 0 ? n.onNext : n.onPrev)();
+    }, SLIDE_MS);
   };
 
   useEffect(() => {
@@ -245,9 +257,12 @@ export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, on
 
   // Sideways swipes only: the first few pixels decide whether the gesture is
   // horizontal. A second finger (pinch) or a zoomed photo cancels it.
+  const canPrev = Boolean(prev && onPrev);
+  const canNext = Boolean(next && onNext);
   const onTouchStart = (e) => {
-    touch.current = !zoomed && (onPrev || onNext) && e.touches.length === 1
-      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), axis: null }
+    if (slide && !sliding) setSlide(null);
+    touch.current = !zoomed && !sliding && (canPrev || canNext) && e.touches.length === 1
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), axis: null, dx: 0 }
       : null;
   };
   const onTouchMove = (e) => {
@@ -264,16 +279,19 @@ export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, on
     if (t.axis !== "x") return;
     t.dx = dx;
     // Resist at the ends, where there's no photo to move to.
-    const blocked = dx > 0 ? !onPrev : !onNext;
+    const blocked = dx > 0 ? !canPrev : !canNext;
     setDragX(blocked ? dx / 4 : dx);
   };
   const onTouchEnd = () => {
     const t = touch.current;
     touch.current = null;
-    setDragX(0);
-    if (!t || t.axis !== "x") return;
+    if (!t || t.axis !== "x") return setDragX(0);
+    const width = scrollRef.current?.clientWidth || window.innerWidth;
     const fast = Math.abs(t.dx) > 30 && Date.now() - t.t < 250;
-    if (Math.abs(t.dx) > 70 || fast) go(t.dx < 0 ? 1 : -1);
+    const dir = t.dx < 0 ? 1 : -1;
+    // Hand the drag over to the slide: the strip carries on from the finger.
+    if ((Math.abs(t.dx) > width / 4 || fast) && (dir > 0 ? canNext : canPrev)) go(dir);
+    setDragX(0);
   };
 
   const toggleZoom = (e) => {
@@ -293,7 +311,23 @@ export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, on
     });
   };
 
-  const mediaAnim = enterFrom ? `lightbox-from-${enterFrom}` : "lightbox-img";
+  const step = `(100% + ${PANEL_GAP}px)`;
+  // Once the new photo arrives the panels have shifted along by one, so the
+  // strip jumps back to the middle at the same instant, with no transition.
+  const trackStyle = sliding
+    ? { transform: `translateX(calc(${-sliding.dir} * ${step}))`, transition: sliding.done ? "none" : `transform ${SLIDE_MS}ms cubic-bezier(0.2, 0.7, 0.3, 1)` }
+    : slide
+      ? { transform: "none", transition: "none" }
+      : { transform: dragX ? `translateX(${dragX}px)` : "none", transition: dragX ? "none" : "transform 0.2s ease-out" };
+
+  // Keyed by photo, so the one sliding in keeps its loaded image as it becomes
+  // the current photo.
+  const panels = [
+    prev && onPrev && { ...prev, pos: -1 },
+    { src, alt, video, pos: 0 },
+    next && onNext && { ...next, pos: 1 },
+  ].filter(Boolean);
+
   const arrow = "hidden sm:flex absolute top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full";
   const arrowStyle = { background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" };
 
@@ -307,41 +341,59 @@ export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, on
       onClick={onClose}
     >
       <div
-        ref={scrollRef}
-        className="w-full h-full overflow-auto flex p-4"
-        style={{ transform: dragX ? `translateX(${dragX}px)` : undefined, transition: dragX ? "none" : "transform 0.2s ease-out" }}
+        className="absolute inset-0 overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onTouchCancel={onTouchEnd}
       >
-        {video ? (
-          <video
-            key={src}
-            src={src}
-            controls
-            autoPlay
-            playsInline
-            aria-label={alt}
-            onClick={(e) => e.stopPropagation()}
-            className={`${mediaAnim} m-auto`}
-            style={{ maxWidth: "100%", maxHeight: "100%" }}
-          />
-        ) : (
-          <img
-            key={src}
-            ref={imgRef}
-            src={src}
-            alt={alt}
-            onClick={toggleZoom}
-            className={`${mediaAnim} m-auto select-none`}
-            style={
-              zoomed
-                ? { width: "250%", maxWidth: "none", cursor: "zoom-out" }
-                : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", cursor: "zoom-in" }
-            }
-          />
-        )}
+        <div className="absolute inset-0" style={trackStyle}>
+          {panels.map((p) => {
+            const current = p.pos === 0;
+            const anim = p.src === firstSrc ? "lightbox-img " : "";
+            return (
+              <div
+                key={p.src}
+                ref={current ? scrollRef : undefined}
+                aria-hidden={current ? undefined : "true"}
+                className={`absolute inset-0 flex p-4 ${current ? "overflow-auto" : "overflow-hidden"}`}
+                style={{ transform: p.pos ? `translateX(calc(${p.pos} * ${step}))` : undefined }}
+              >
+                {p.video ? (
+                  current ? (
+                    <video
+                      key="playing"
+                      src={p.src}
+                      controls
+                      autoPlay
+                      playsInline
+                      aria-label={p.alt}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`${anim}m-auto`}
+                      style={{ maxWidth: "100%", maxHeight: "100%" }}
+                    />
+                  ) : (
+                    <video key="still" src={`${p.src}#t=0.1`} muted playsInline preload="metadata" className="m-auto" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+                  )
+                ) : (
+                  <img
+                    ref={current ? imgRef : undefined}
+                    src={p.src}
+                    alt={current ? p.alt : ""}
+                    onClick={current ? toggleZoom : undefined}
+                    draggable={false}
+                    className={`${anim}m-auto select-none`}
+                    style={
+                      current && zoomed
+                        ? { width: "250%", maxWidth: "none", cursor: "zoom-out" }
+                        : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", cursor: current ? "zoom-in" : undefined }
+                    }
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
       <button
         type="button"
@@ -352,12 +404,12 @@ export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, on
       >
         <X size={20} strokeWidth={1.75} />
       </button>
-      {!zoomed && onPrev && (
+      {!zoomed && canPrev && (
         <button type="button" aria-label="Previous photo" className={`${arrow} left-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(-1); }}>
           <ChevronLeft size={22} strokeWidth={1.75} />
         </button>
       )}
-      {!zoomed && onNext && (
+      {!zoomed && canNext && (
         <button type="button" aria-label="Next photo" className={`${arrow} right-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(1); }}>
           <ChevronRight size={22} strokeWidth={1.75} />
         </button>

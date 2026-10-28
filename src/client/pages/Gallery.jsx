@@ -34,11 +34,7 @@ export default function Gallery() {
   const prev = open ? photos[openIndex - 1] : null;
   const next = open ? photos[openIndex + 1] : null;
   const setOpen = (p) => setParams(p ? { photo: p.id } : {}, { replace: true });
-
-  // Fetch the neighbouring photos ahead of a swipe.
-  useEffect(() => {
-    for (const p of [prev, next]) if (p && !p.isVideo) new Image().src = p.url;
-  }, [prev, next]);
+  const asSlide = (p) => p && { src: p.url, alt: p.caption || (p.isVideo ? "Guest video" : "Guest photo"), video: p.isVideo };
 
   useEffect(() => {
     fetchApprovedGallery(filter)
@@ -180,6 +176,8 @@ export default function Gallery() {
           caption={open.caption}
           video={open.isVideo}
           onClose={() => setOpen(null)}
+          prev={asSlide(prev)}
+          next={asSlide(next)}
           onPrev={prev ? () => setOpen(prev) : undefined}
           onNext={next ? () => setOpen(next) : undefined}
         >
