@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Upload, Play } from "lucide-react";
 import { COLORS } from "../../shared/theme";
 import { GoldButton, SectionTitle, LoadingNote, ErrorNote, Lightbox } from "../../shared/ui";
 import { GALLERY_FILTERS } from "../data/staticContent";
 import { useAuth } from "../../lib/auth";
-import { fetchApprovedGallery, uploadGalleryPhoto } from "../../lib/queries";
+import { fetchApprovedGallery, uploadGalleryPhoto, fetchGalleryCounts, setGalleryHeart } from "../../lib/queries";
+import { supabase } from "../../lib/supabaseClient";
+import { claimPushSubscription } from "../../lib/push";
+import { PhotoSocialBar, ThumbCounts } from "../PhotoSocial";
 
 export default function Gallery() {
   const { user } = useAuth();
@@ -15,14 +18,75 @@ export default function Gallery() {
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
-  const [open, setOpen] = useState(null);
+  // { [uploadId]: { comments, hearts, hearted } }, or null when signed out or
+  // comments aren't set up in the database yet (the gallery works as before).
+  const [countsState, setCounts] = useState(null);
+  const counts = user ? countsState : null;
+  // Bumped on every live comment/heart change so an open comments panel refetches.
+  const [liveTick, setLiveTick] = useState(0);
   const fileInputRef = useRef(null);
+
+  // The open photo lives in the URL (?photo=id) so notifications can link to it.
+  const [params, setParams] = useSearchParams();
+  const openId = params.get("photo");
+  const open = openId ? photos?.find((p) => p.id === openId) : null;
+  const setOpen = (p) => setParams(p ? { photo: p.id } : {}, { replace: true });
 
   useEffect(() => {
     fetchApprovedGallery(filter)
       .then(setPhotos)
       .catch((e) => setError(e.message));
   }, [filter]);
+
+  const loadCounts = useCallback(() => {
+    if (!user) return;
+    fetchGalleryCounts()
+      .then(setCounts)
+      .catch(() => setCounts(null));
+  }, [user]);
+
+  useEffect(loadCounts, [loadCounts]);
+
+  useEffect(() => {
+    if (user) claimPushSubscription(user.id).catch(() => {});
+  }, [user]);
+
+  // Live updates: any comment or heart change refreshes the counts.
+  const social = Boolean(counts);
+  useEffect(() => {
+    if (!user || !social || !supabase) return;
+    let timer;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        loadCounts();
+        setLiveTick((t) => t + 1);
+      }, 250);
+    };
+    const channel = supabase
+      .channel("gallery-social")
+      .on("postgres_changes", { event: "*", schema: "public", table: "gallery_comments" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "gallery_likes" }, refresh)
+      .subscribe();
+    return () => {
+      clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
+  }, [user, social, loadCounts]);
+
+  async function toggleHeart(photo) {
+    const prev = counts[photo.id] || { upload_id: photo.id, comments: 0, hearts: 0, hearted: false };
+    const next = { ...prev, hearted: !prev.hearted, hearts: prev.hearts + (prev.hearted ? -1 : 1) };
+    setCounts((c) => ({ ...c, [photo.id]: next }));
+    try {
+      await setGalleryHeart(photo.id, user.id, next.hearted);
+    } catch (e) {
+      setCounts((c) => ({ ...c, [photo.id]: prev }));
+      setError(e.message);
+    }
+  }
+
+  const statsFor = (p) => (counts ? counts[p.id] || { upload_id: p.id, comments: 0, hearts: 0, hearted: false } : null);
 
   async function handleFileChange(e) {
     const file = e.target.files?.[0];
@@ -95,6 +159,7 @@ export default function Gallery() {
               style={{ border: "1px solid var(--line)", cursor: "zoom-in" }}
             >
               <GalleryThumb item={p} />
+              <ThumbCounts stats={counts?.[p.id]} />
             </button>
           ))}
         </div>
@@ -106,7 +171,9 @@ export default function Gallery() {
           caption={open.caption}
           video={open.isVideo}
           onClose={() => setOpen(null)}
-        />
+        >
+          <PhotoSocialBar photo={open} stats={user ? statsFor(open) : null} onHeart={() => toggleHeart(open)} onCommentsChange={loadCounts} liveTick={liveTick} />
+        </Lightbox>
       )}
     </div>
   );

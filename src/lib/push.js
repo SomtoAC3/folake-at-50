@@ -92,6 +92,16 @@ export async function subscribeToPush(userId = null) {
   return sub;
 }
 
+// Links this device's existing subscription to the signed-in guest, so
+// notifications meant for them (like comments on their photos) reach it.
+// Subscriptions made before signing in are stored without a user.
+export async function claimPushSubscription(userId) {
+  if (!userId || getPermissionState() !== "granted") return;
+  const sub = await getExistingSubscription();
+  if (!sub) return;
+  await supabase.from("push_subscriptions").update({ user_id: userId }).eq("endpoint", sub.endpoint);
+}
+
 export async function unsubscribeFromPush() {
   const sub = await getExistingSubscription();
   if (!sub) return;

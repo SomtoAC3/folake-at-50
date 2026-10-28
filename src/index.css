@@ -88,6 +88,12 @@ body {
 }
 .lightbox { animation: lightbox-fade 0.25s ease-out both; }
 .lightbox-img { animation: lightbox-grow 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+/* Comments panel slides up over the photo. */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.sheet-up { animation: sheet-up 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 @media (prefers-reduced-motion: reduce) {
-  .hero-photo, .rise-in, .lightbox, .lightbox-img { animation: none; }
+  .hero-photo, .rise-in, .lightbox, .lightbox-img, .sheet-up { animation: none; }
 }

@@ -201,7 +201,9 @@ export function ErrorNote({ message }) {
 // animated (transformed) ancestor. Tap the photo to zoom in where you tapped
 // and pan by scrolling; tap outside it, the close button or Escape to close.
 // With `video`, it plays the clip with the browser's own controls instead.
-export function Lightbox({ src, alt, caption, video = false, onClose }) {
+// `children`, when given, replaces the caption block at the bottom (the
+// gallery puts its hearts and comments there). Clicks inside it don't close.
+export function Lightbox({ src, alt, caption, video = false, onClose, children }) {
   const [zoomed, setZoomed] = useState(false);
   const scrollRef = useRef(null);
   const imgRef = useRef(null);
@@ -279,7 +281,16 @@ export function Lightbox({ src, alt, caption, video = false, onClose }) {
       >
         <X size={20} strokeWidth={1.75} />
       </button>
-      {!zoomed && (caption || !video) && (
+      {!zoomed && children && (
+        <div
+          className="absolute inset-x-0 bottom-0"
+          style={{ fontFamily: F.body }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+      )}
+      {!zoomed && !children && (caption || !video) && (
         <div
           className="absolute inset-x-0 px-6 text-center pointer-events-none"
           style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)", fontFamily: F.body }}

@@ -148,6 +148,73 @@ export async function setGalleryStatus(id, status) {
 }
 
 // ---------------------------------------------------------------------------
+// Gallery comments + hearts (signed-in guests only)
+// ---------------------------------------------------------------------------
+export const COMMENT_MAX = 300;
+
+// { [uploadId]: { comments, hearts, hearted } }
+export async function fetchGalleryCounts() {
+  const db = requireSupabase();
+  const { data, error } = await db.from("gallery_counts").select("*");
+  if (error) throw error;
+  return Object.fromEntries(data.map((r) => [r.upload_id, r]));
+}
+
+export async function fetchGalleryComments(uploadId) {
+  const db = requireSupabase();
+  const { data, error } = await db
+    .from("gallery_comments")
+    .select("id, guest_id, author_name, body, created_at")
+    .eq("upload_id", uploadId)
+    .order("created_at");
+  if (error) throw error;
+  return data;
+}
+
+export async function postGalleryComment(uploadId, body) {
+  const db = requireSupabase();
+  const { data, error } = await db
+    .from("gallery_comments")
+    .insert({ upload_id: uploadId, body: body.trim() })
+    .select("id, guest_id, author_name, body, created_at")
+    .single();
+  if (error) throw error;
+  // Ping the uploader; a failed notification shouldn't fail the comment.
+  db.functions.invoke("notify-comment", { body: { comment_id: data.id } }).catch(() => {});
+  return data;
+}
+
+export async function deleteGalleryComment(id) {
+  const db = requireSupabase();
+  const { error } = await db.from("gallery_comments").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setGalleryHeart(uploadId, guestId, hearted) {
+  const db = requireSupabase();
+  const { error } = hearted
+    ? await db.from("gallery_likes").insert({ upload_id: uploadId, guest_id: guestId })
+    : await db.from("gallery_likes").delete().eq("upload_id", uploadId).eq("guest_id", guestId);
+  // A double tap can race; an existing heart is already the state we want.
+  if (error && error.code !== "23505") throw error;
+}
+
+export async function fetchRecentGalleryComments(limit = 50) {
+  const db = requireSupabase();
+  const { data, error } = await db
+    .from("gallery_comments")
+    .select("id, author_name, body, created_at, upload_id, gallery_uploads(storage_path)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data.map((row) => ({
+    ...row,
+    thumbUrl: row.gallery_uploads ? publicGalleryUrl(row.gallery_uploads.storage_path) : null,
+    isVideo: isVideoPath(row.gallery_uploads?.storage_path),
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Admin: guests + stats
 // ---------------------------------------------------------------------------
 export async function fetchAllGuests() {
