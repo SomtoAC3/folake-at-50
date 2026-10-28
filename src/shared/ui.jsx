@@ -199,14 +199,18 @@ export function ErrorNote({ message }) {
 
 // Full-screen photo viewer. Rendered into <body> so it escapes any card or
 // animated (transformed) ancestor. Tap the photo to zoom in where you tapped
-// and pan by scrolling; tap outside it, the close button or Escape to close.
+// and pan by scrolling; tap outside it, swipe down, the close button or Escape
+// to close.
 // With `video`, it plays the clip with the browser's own controls instead.
 // `children`, when given, replaces the caption block at the bottom (the
 // gallery puts its hearts and comments there). Clicks inside it don't close.
 // With `prev`/`next` ({ src, alt, video }) and `onPrev`/`onNext`, the photos
 // either side sit just off screen: dragging sideways pulls them in, and on
 // release the strip slides the rest of the way before the photo changes.
+// Dragging the photo down lets the page show through; let go far enough
+// (or flick) and it drops away and closes.
 const SLIDE_MS = 280;
+const CLOSE_MS = 220;
 const PANEL_GAP = 16;
 
 export function Lightbox({ src, alt, caption, video = false, onClose, prev, next, onPrev, onNext, children }) {
@@ -215,6 +219,8 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
   const zoomed = zoomedSrc === src;
   const [firstSrc] = useState(src);
   const [dragX, setDragX] = useState(0);
+  const [dragY, setDragY] = useState(0);
+  const [closing, setClosing] = useState(false);
   // { dir, from, done }: the strip is sliding (or has slid) away from `from`.
   // It stays put until the new photo arrives, so there's never a jump back.
   const [slide, setSlide] = useState(null);
@@ -255,13 +261,13 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     };
   }, [onClose]);
 
-  // Sideways swipes only: the first few pixels decide whether the gesture is
-  // horizontal. A second finger (pinch) or a zoomed photo cancels it.
+  // The first few pixels decide whether a swipe is sideways (change photo) or
+  // downwards (close). A second finger (pinch) or a zoomed photo cancels it.
   const canPrev = Boolean(prev && onPrev);
   const canNext = Boolean(next && onNext);
   const onTouchStart = (e) => {
     if (slide && !sliding) setSlide(null);
-    touch.current = !zoomed && !sliding && (canPrev || canNext) && e.touches.length === 1
+    touch.current = !zoomed && !sliding && !closing && e.touches.length === 1
       ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), axis: null, dx: 0 }
       : null;
   };
@@ -271,11 +277,18 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     if (e.touches.length > 1) {
       touch.current = null;
       setDragX(0);
+      setDragY(0);
       return;
     }
     const dx = e.touches[0].clientX - t.x;
     const dy = e.touches[0].clientY - t.y;
     if (!t.axis && Math.hypot(dx, dy) > 10) t.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    if (t.axis === "y") {
+      t.dy = dy;
+      // Only down closes; pulling up barely moves.
+      setDragY(dy > 0 ? dy : dy / 6);
+      return;
+    }
     if (t.axis !== "x") return;
     t.dx = dx;
     // Resist at the ends, where there's no photo to move to.
@@ -285,6 +298,18 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
   const onTouchEnd = () => {
     const t = touch.current;
     touch.current = null;
+    if (t?.axis === "y") {
+      const fast = t.dy > 40 && Date.now() - t.t < 250;
+      if (t.dy > 120 || fast) {
+        // Carry on down off the screen, then close.
+        setClosing(true);
+        setDragY(window.innerHeight);
+        setTimeout(onClose, CLOSE_MS);
+      } else {
+        setDragY(0);
+      }
+      return;
+    }
     if (!t || t.axis !== "x") return setDragX(0);
     const width = scrollRef.current?.clientWidth || window.innerWidth;
     const fast = Math.abs(t.dx) > 30 && Date.now() - t.t < 250;
@@ -328,8 +353,17 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     next && onNext && { ...next, pos: 1 },
   ].filter(Boolean);
 
+  // Pulling down shrinks the photo a little and fades the backdrop; the
+  // buttons and comments bar get out of the way until it settles.
+  const pull = Math.max(0, Math.min(dragY / 400, 1));
+  const dropStyle = {
+    transform: dragY ? `translateY(${dragY}px) scale(${1 - pull * 0.15})` : "none",
+    transition: dragY && !closing ? "none" : `transform ${closing ? CLOSE_MS : 200}ms ${closing ? "ease-in" : "ease-out"}`,
+  };
+  const chrome = { opacity: dragY > 0 || closing ? 0 : 1, transition: "opacity 0.15s" };
+
   const arrow = "hidden sm:flex absolute top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full";
-  const arrowStyle = { background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" };
+  const arrowStyle = { ...chrome, background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" };
 
   return createPortal(
     <div
@@ -337,11 +371,12 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
       aria-modal="true"
       aria-label={alt}
       className="lightbox fixed inset-0 z-[100]"
-      style={{ background: "rgba(10, 10, 10, 0.96)" }}
+      style={{ background: `rgba(10, 10, 10, ${closing ? 0 : 0.96 * (1 - pull * 0.8)})`, transition: dragY && !closing ? "none" : `background-color ${CLOSE_MS}ms` }}
       onClick={onClose}
     >
       <div
         className="absolute inset-0 overflow-hidden"
+        style={dropStyle}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -400,7 +435,7 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
         onClick={onClose}
         aria-label="Close photo"
         className="absolute right-4 w-11 h-11 flex items-center justify-center rounded-full"
-        style={{ top: "calc(env(safe-area-inset-top, 0px) + 16px)", background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" }}
+        style={{ ...chrome, top: "calc(env(safe-area-inset-top, 0px) + 16px)", background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" }}
       >
         <X size={20} strokeWidth={1.75} />
       </button>
@@ -417,7 +452,7 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
       {!zoomed && children && (
         <div
           className="absolute inset-x-0 bottom-0"
-          style={{ fontFamily: F.body }}
+          style={{ ...chrome, fontFamily: F.body }}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
@@ -426,7 +461,7 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
       {!zoomed && !children && (caption || !video) && (
         <div
           className="absolute inset-x-0 px-6 text-center pointer-events-none"
-          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)", fontFamily: F.body }}
+          style={{ ...chrome, bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)", fontFamily: F.body }}
         >
           {caption && <p className="text-[13px] mb-1.5" style={{ color: "#F4F1EC" }}>{caption}</p>}
           {!video && <p className="text-[11px]" style={{ color: "rgba(244, 241, 236, 0.6)" }}>Tap the photo to zoom</p>}
