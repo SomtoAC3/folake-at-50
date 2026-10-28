@@ -151,6 +151,9 @@ export async function setGalleryStatus(id, status) {
 // Gallery comments + hearts (signed-in guests only)
 // ---------------------------------------------------------------------------
 export const COMMENT_MAX = 300;
+// Must match the check on gallery_comment_reactions.emoji.
+export const COMMENT_REACTIONS = ["❤️", "😂", "😍", "🔥", "👏", "🎉"];
+const COMMENT_FIELDS = "id, guest_id, author_name, body, created_at, parent_id, reactions:gallery_comment_reactions(emoji, guest_id)";
 
 // { [uploadId]: { comments, hearts, hearted } }
 export async function fetchGalleryCounts() {
@@ -164,22 +167,25 @@ export async function fetchGalleryComments(uploadId) {
   const db = requireSupabase();
   const { data, error } = await db
     .from("gallery_comments")
-    .select("id, guest_id, author_name, body, created_at")
+    .select(COMMENT_FIELDS)
     .eq("upload_id", uploadId)
     .order("created_at");
   if (error) throw error;
   return data;
 }
 
-export async function postGalleryComment(uploadId, body) {
+// `replyTo` is the comment being answered; the database files the reply
+// under its top-level comment.
+export async function postGalleryComment(uploadId, body, replyTo = null) {
   const db = requireSupabase();
   const { data, error } = await db
     .from("gallery_comments")
-    .insert({ upload_id: uploadId, body: body.trim() })
-    .select("id, guest_id, author_name, body, created_at")
+    .insert({ upload_id: uploadId, body: body.trim(), parent_id: replyTo })
+    .select(COMMENT_FIELDS)
     .single();
   if (error) throw error;
-  // Ping the uploader; a failed notification shouldn't fail the comment.
+  // Ping the uploader (and whoever was replied to); a failed notification
+  // shouldn't fail the comment.
   db.functions.invoke("notify-comment", { body: { comment_id: data.id } }).catch(() => {});
   return data;
 }
@@ -188,6 +194,14 @@ export async function deleteGalleryComment(id) {
   const db = requireSupabase();
   const { error } = await db.from("gallery_comments").delete().eq("id", id);
   if (error) throw error;
+}
+
+export async function setCommentReaction(commentId, guestId, emoji, on) {
+  const db = requireSupabase();
+  const { error } = on
+    ? await db.from("gallery_comment_reactions").insert({ comment_id: commentId, guest_id: guestId, emoji })
+    : await db.from("gallery_comment_reactions").delete().eq("comment_id", commentId).eq("guest_id", guestId).eq("emoji", emoji);
+  if (error && error.code !== "23505") throw error;
 }
 
 export async function setGalleryHeart(uploadId, guestId, hearted) {

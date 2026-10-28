@@ -67,6 +67,7 @@ export default function Gallery() {
       .channel("gallery-social")
       .on("postgres_changes", { event: "*", schema: "public", table: "gallery_comments" }, refresh)
       .on("postgres_changes", { event: "*", schema: "public", table: "gallery_likes" }, refresh)
+      .on("postgres_changes", { event: "*", schema: "public", table: "gallery_comment_reactions" }, refresh)
       .subscribe();
     return () => {
       clearTimeout(timer);

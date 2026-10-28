@@ -1,7 +1,8 @@
-// Tells a photo's uploader that someone commented on it.
+// Tells a photo's uploader that someone commented on it, and a guest that
+// someone replied to their comment.
 // Invoked from the gallery right after a guest posts a comment. Only the
 // comment's author may call it, each comment notifies at most once, and
-// guests commenting on their own photo aren't notified.
+// guests are never notified about their own comments.
 //
 // Uses the same VAPID secrets as send-push.
 
@@ -45,24 +46,28 @@ Deno.serve(async (req) => {
       .eq("id", comment_id)
       .eq("guest_id", userData.user.id)
       .eq("notified", false)
-      .select("upload_id, guest_id, author_name, body")
+      .select("upload_id, guest_id, reply_to_guest, author_name, body")
       .maybeSingle();
     if (claimErr) return json({ error: claimErr.message }, 500);
     if (!comment) return json({ sent: 0, skipped: "already notified or not yours" });
 
+    // Who to tell: the photo's uploader, and for a reply, the guest replied
+    // to (their message wins if they're the same person). Never the author.
+    const titles = new Map<string, string>();
     const { data: upload } = await admin
       .from("gallery_uploads")
       .select("guest_id")
       .eq("id", comment.upload_id)
       .maybeSingle();
-    if (!upload?.guest_id || upload.guest_id === comment.guest_id) {
-      return json({ sent: 0, skipped: "own photo" });
-    }
+    if (upload?.guest_id) titles.set(upload.guest_id, `${comment.author_name} commented on your photo`);
+    if (comment.reply_to_guest) titles.set(comment.reply_to_guest, `${comment.author_name} replied to your comment`);
+    titles.delete(comment.guest_id);
+    if (titles.size === 0) return json({ sent: 0, skipped: "no one to notify" });
 
     const { data: subs, error: subsErr } = await admin
       .from("push_subscriptions")
-      .select("endpoint, p256dh, auth")
-      .eq("user_id", upload.guest_id);
+      .select("endpoint, p256dh, auth, user_id")
+      .in("user_id", [...titles.keys()]);
     if (subsErr) return json({ error: subsErr.message }, 500);
     if (!subs?.length) return json({ sent: 0 });
 
@@ -73,11 +78,6 @@ Deno.serve(async (req) => {
     );
 
     const snippet = comment.body.length > 80 ? `${comment.body.slice(0, 79)}…` : comment.body;
-    const payload = JSON.stringify({
-      title: `${comment.author_name} commented on your photo`,
-      body: snippet,
-      url: `/gallery?photo=${comment.upload_id}`,
-    });
 
     let sent = 0;
     const dead: string[] = [];
@@ -86,7 +86,11 @@ Deno.serve(async (req) => {
         try {
           await webpush.sendNotification(
             { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-            payload
+            JSON.stringify({
+              title: titles.get(sub.user_id),
+              body: snippet,
+              url: `/gallery?photo=${comment.upload_id}`,
+            })
           );
           sent++;
         } catch (err) {
