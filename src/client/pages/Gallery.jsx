@@ -29,8 +29,16 @@ export default function Gallery() {
   // The open photo lives in the URL (?photo=id) so notifications can link to it.
   const [params, setParams] = useSearchParams();
   const openId = params.get("photo");
-  const open = openId ? photos?.find((p) => p.id === openId) : null;
+  const openIndex = openId && photos ? photos.findIndex((p) => p.id === openId) : -1;
+  const open = openIndex >= 0 ? photos[openIndex] : null;
+  const prev = open ? photos[openIndex - 1] : null;
+  const next = open ? photos[openIndex + 1] : null;
   const setOpen = (p) => setParams(p ? { photo: p.id } : {}, { replace: true });
+
+  // Fetch the neighbouring photos ahead of a swipe.
+  useEffect(() => {
+    for (const p of [prev, next]) if (p && !p.isVideo) new Image().src = p.url;
+  }, [prev, next]);
 
   useEffect(() => {
     fetchApprovedGallery(filter)
@@ -172,8 +180,10 @@ export default function Gallery() {
           caption={open.caption}
           video={open.isVideo}
           onClose={() => setOpen(null)}
+          onPrev={prev ? () => setOpen(prev) : undefined}
+          onNext={next ? () => setOpen(next) : undefined}
         >
-          <PhotoSocialBar photo={open} stats={user ? statsFor(open) : null} onHeart={() => toggleHeart(open)} onCommentsChange={loadCounts} liveTick={liveTick} />
+          <PhotoSocialBar key={open.id} photo={open} stats={user ? statsFor(open) : null} onHeart={() => toggleHeart(open)} onCommentsChange={loadCounts} liveTick={liveTick} />
         </Lightbox>
       )}
     </div>

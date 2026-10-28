@@ -88,6 +88,17 @@ body {
 }
 .lightbox { animation: lightbox-fade 0.25s ease-out both; }
 .lightbox-img { animation: lightbox-grow 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+/* Swiping to the next or previous photo slides it in from that side. */
+@keyframes lightbox-from-right {
+  from { opacity: 0.4; transform: translateX(40%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes lightbox-from-left {
+  from { opacity: 0.4; transform: translateX(-40%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.lightbox-from-right { animation: lightbox-from-right 0.25s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.lightbox-from-left { animation: lightbox-from-left 0.25s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 /* Comments panel slides up over the photo. */
 @keyframes sheet-up {
   from { transform: translateY(100%); }
@@ -95,7 +106,7 @@ body {
 }
 .sheet-up { animation: sheet-up 0.3s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 @media (prefers-reduced-motion: reduce) {
-  .hero-photo, .rise-in, .lightbox, .lightbox-img, .sheet-up { animation: none; }
+  .hero-photo, .rise-in, .lightbox, .lightbox-img, .lightbox-from-right, .lightbox-from-left, .sheet-up { animation: none; }
 }
 
 /* iOS zooms the page when a focused field's text is under 16px. */

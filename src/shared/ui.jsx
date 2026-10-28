@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { COLORS, F, CAPS, DISPLAY_LUXE } from "./theme";
 
 // The `light`/`dark`/`tone` props on these components are kept for
@@ -203,13 +203,37 @@ export function ErrorNote({ message }) {
 // With `video`, it plays the clip with the browser's own controls instead.
 // `children`, when given, replaces the caption block at the bottom (the
 // gallery puts its hearts and comments there). Clicks inside it don't close.
-export function Lightbox({ src, alt, caption, video = false, onClose, children }) {
-  const [zoomed, setZoomed] = useState(false);
+// With `onPrev`/`onNext`, swiping sideways (or the arrow keys) moves between
+// photos; the photo follows the finger and slides in from that side.
+export function Lightbox({ src, alt, caption, video = false, onClose, onPrev, onNext, children }) {
+  // Zoom belongs to one photo, so moving to the next starts unzoomed.
+  const [zoomedSrc, setZoomedSrc] = useState(null);
+  const zoomed = zoomedSrc === src;
+  const [dragX, setDragX] = useState(0);
+  const [enterFrom, setEnterFrom] = useState(null);
   const scrollRef = useRef(null);
   const imgRef = useRef(null);
+  const touch = useRef(null);
+  const nav = useRef({});
+  useEffect(() => {
+    nav.current = { onPrev, onNext, zoomed };
+  });
+
+  const go = (dir) => {
+    const fn = dir > 0 ? nav.current.onNext : nav.current.onPrev;
+    if (!fn || nav.current.zoomed) return;
+    setEnterFrom(dir > 0 ? "right" : "left");
+    fn();
+  };
 
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const onKey = (e) => {
+      if (e.key === "Escape") return onClose();
+      // Arrow keys move the caret while typing a comment.
+      if (e.target.closest?.("input, textarea")) return;
+      if (e.key === "ArrowRight") go(1);
+      if (e.key === "ArrowLeft") go(-1);
+    };
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKey);
@@ -219,12 +243,45 @@ export function Lightbox({ src, alt, caption, video = false, onClose, children }
     };
   }, [onClose]);
 
+  // Sideways swipes only: the first few pixels decide whether the gesture is
+  // horizontal. A second finger (pinch) or a zoomed photo cancels it.
+  const onTouchStart = (e) => {
+    touch.current = !zoomed && (onPrev || onNext) && e.touches.length === 1
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), axis: null }
+      : null;
+  };
+  const onTouchMove = (e) => {
+    const t = touch.current;
+    if (!t) return;
+    if (e.touches.length > 1) {
+      touch.current = null;
+      setDragX(0);
+      return;
+    }
+    const dx = e.touches[0].clientX - t.x;
+    const dy = e.touches[0].clientY - t.y;
+    if (!t.axis && Math.hypot(dx, dy) > 10) t.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    if (t.axis !== "x") return;
+    t.dx = dx;
+    // Resist at the ends, where there's no photo to move to.
+    const blocked = dx > 0 ? !onPrev : !onNext;
+    setDragX(blocked ? dx / 4 : dx);
+  };
+  const onTouchEnd = () => {
+    const t = touch.current;
+    touch.current = null;
+    setDragX(0);
+    if (!t || t.axis !== "x") return;
+    const fast = Math.abs(t.dx) > 30 && Date.now() - t.t < 250;
+    if (Math.abs(t.dx) > 70 || fast) go(t.dx < 0 ? 1 : -1);
+  };
+
   const toggleZoom = (e) => {
     e.stopPropagation();
     const rect = imgRef.current.getBoundingClientRect();
     const relX = (e.clientX - rect.left) / rect.width;
     const relY = (e.clientY - rect.top) / rect.height;
-    setZoomed((z) => !z);
+    setZoomedSrc(zoomed ? null : src);
     if (zoomed) return;
     // Once the larger image has laid out, centre the spot that was tapped.
     requestAnimationFrame(() => {
@@ -236,6 +293,10 @@ export function Lightbox({ src, alt, caption, video = false, onClose, children }
     });
   };
 
+  const mediaAnim = enterFrom ? `lightbox-from-${enterFrom}` : "lightbox-img";
+  const arrow = "hidden sm:flex absolute top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full";
+  const arrowStyle = { background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" };
+
   return createPortal(
     <div
       role="dialog"
@@ -245,25 +306,35 @@ export function Lightbox({ src, alt, caption, video = false, onClose, children }
       style={{ background: "rgba(10, 10, 10, 0.96)" }}
       onClick={onClose}
     >
-      <div ref={scrollRef} className="w-full h-full overflow-auto flex p-4">
+      <div
+        ref={scrollRef}
+        className="w-full h-full overflow-auto flex p-4"
+        style={{ transform: dragX ? `translateX(${dragX}px)` : undefined, transition: dragX ? "none" : "transform 0.2s ease-out" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
+      >
         {video ? (
           <video
+            key={src}
             src={src}
             controls
             autoPlay
             playsInline
             aria-label={alt}
             onClick={(e) => e.stopPropagation()}
-            className="lightbox-img m-auto"
+            className={`${mediaAnim} m-auto`}
             style={{ maxWidth: "100%", maxHeight: "100%" }}
           />
         ) : (
           <img
+            key={src}
             ref={imgRef}
             src={src}
             alt={alt}
             onClick={toggleZoom}
-            className="lightbox-img m-auto select-none"
+            className={`${mediaAnim} m-auto select-none`}
             style={
               zoomed
                 ? { width: "250%", maxWidth: "none", cursor: "zoom-out" }
@@ -281,6 +352,16 @@ export function Lightbox({ src, alt, caption, video = false, onClose, children }
       >
         <X size={20} strokeWidth={1.75} />
       </button>
+      {!zoomed && onPrev && (
+        <button type="button" aria-label="Previous photo" className={`${arrow} left-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(-1); }}>
+          <ChevronLeft size={22} strokeWidth={1.75} />
+        </button>
+      )}
+      {!zoomed && onNext && (
+        <button type="button" aria-label="Next photo" className={`${arrow} right-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(1); }}>
+          <ChevronRight size={22} strokeWidth={1.75} />
+        </button>
+      )}
       {!zoomed && children && (
         <div
           className="absolute inset-x-0 bottom-0"
