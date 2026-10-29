@@ -95,16 +95,12 @@ body {
   from { opacity: 0; transform: scale(0.94); }
   to { opacity: 1; transform: scale(1); }
 }
-/* While a photo is full screen, Safari's bars go black to match it. Safari
-   colours them from the page's header and nav bar (fixed to the screen
-   edges) even under the viewer, so the page is hidden until the photo is
-   pulled down to reveal it. */
+/* While a photo is full screen, Safari's bars go black to match it. */
 html.lightbox-open,
 html.lightbox-open body {
   background: #0A0A0A;
   color-scheme: dark;
 }
-html.lightbox-open:not(.lightbox-pulling) #root { visibility: hidden; }
 .lightbox { animation: lightbox-fade 0.25s ease-out both; }
 .lightbox-img { animation: lightbox-grow 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 /* Comments panel slides up over the photo. */

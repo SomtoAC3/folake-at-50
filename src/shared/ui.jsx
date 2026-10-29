@@ -252,7 +252,7 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
     root.classList.add("lightbox-open");
     meta?.setAttribute("content", "#0A0A0A");
     return () => {
-      root.classList.remove("lightbox-open", "lightbox-pulling");
+      root.classList.remove("lightbox-open");
       if (meta && prevColor) meta.setAttribute("content", prevColor);
     };
   }, []);
@@ -273,12 +273,6 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
-
-  // The page is hidden behind the viewer (see index.css) except while it's
-  // being pulled down to reveal it.
-  useEffect(() => {
-    document.documentElement.classList.toggle("lightbox-pulling", dragY > 0 || closing);
-  }, [dragY, closing]);
 
   // The first few pixels decide whether a swipe is sideways (change photo) or
   // downwards (close). A second finger (pinch) or a zoomed photo cancels it.
@@ -387,109 +381,122 @@ export function Lightbox({ src, alt, caption, video = false, onClose, prev, next
   const arrow = "hidden sm:flex absolute top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full";
   const arrowStyle = { ...chrome, background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" };
 
+  const backdrop = {
+    background: `rgba(10, 10, 10, ${closing ? 0 : dragY ? 0.96 * (1 - pull * 0.8) : 1})`,
+    transition: dragY && !closing ? "none" : `background-color ${CLOSE_MS}ms`,
+  };
+  // iOS Safari colours its status bar and toolbar from fixed elements along the
+  // screen edges, skipping anything still fading in. These strips stay solid
+  // from the first frame so the bars turn black with the viewer.
+  const edge = "fixed inset-x-0 h-3 z-[101] pointer-events-none";
+
   return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={alt}
-      className="lightbox fixed inset-0 z-[100]"
-      style={{ background: `rgba(10, 10, 10, ${closing ? 0 : dragY ? 0.96 * (1 - pull * 0.8) : 1})`, transition: dragY && !closing ? "none" : `background-color ${CLOSE_MS}ms` }}
-      onClick={onClose}
-    >
+    <>
+      <div aria-hidden="true" className={`${edge} top-0`} style={backdrop} />
+      <div aria-hidden="true" className={`${edge} bottom-0`} style={backdrop} />
       <div
-        className="absolute inset-0 overflow-hidden"
-        style={dropStyle}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchEnd}
-      >
-        <div className="absolute inset-0" style={trackStyle}>
-          {panels.map((p) => {
-            const current = p.pos === 0;
-            const anim = p.src === firstSrc ? "lightbox-img " : "";
-            return (
-              <div
-                key={p.src}
-                ref={current ? scrollRef : undefined}
-                aria-hidden={current ? undefined : "true"}
-                className={`absolute inset-0 flex p-4 ${current ? "overflow-auto" : "overflow-hidden"}`}
-                style={{ transform: p.pos ? `translateX(calc(${p.pos} * ${step}))` : undefined }}
-              >
-                {p.video ? (
-                  current ? (
-                    <video
-                      key="playing"
-                      src={p.src}
-                      controls
-                      autoPlay
-                      playsInline
-                      aria-label={p.alt}
-                      onClick={(e) => e.stopPropagation()}
-                      className={`${anim}m-auto`}
-                      style={{ maxWidth: "100%", maxHeight: "100%" }}
-                    />
-                  ) : (
-                    <video key="still" src={`${p.src}#t=0.1`} muted playsInline preload="metadata" className="m-auto" style={{ maxWidth: "100%", maxHeight: "100%" }} />
-                  )
-                ) : (
-                  <img
-                    ref={current ? imgRef : undefined}
-                    src={p.src}
-                    alt={current ? p.alt : ""}
-                    onClick={current ? toggleZoom : undefined}
-                    draggable={false}
-                    className={`${anim}m-auto select-none`}
-                    style={
-                      current && zoomed
-                        ? { width: "250%", maxWidth: "none", cursor: "zoom-out" }
-                        : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", cursor: current ? "zoom-in" : undefined }
-                    }
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <button
-        type="button"
+        role="dialog"
+        aria-modal="true"
+        aria-label={alt}
+        className="lightbox fixed inset-0 z-[100]"
+        style={backdrop}
         onClick={onClose}
-        aria-label="Close photo"
-        className="absolute right-4 w-11 h-11 flex items-center justify-center rounded-full"
-        style={{ ...chrome, top: "calc(env(safe-area-inset-top, 0px) + 16px)", background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" }}
       >
-        <X size={20} strokeWidth={1.75} />
-      </button>
-      {!zoomed && canPrev && (
-        <button type="button" aria-label="Previous photo" className={`${arrow} left-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(-1); }}>
-          <ChevronLeft size={22} strokeWidth={1.75} />
-        </button>
-      )}
-      {!zoomed && canNext && (
-        <button type="button" aria-label="Next photo" className={`${arrow} right-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(1); }}>
-          <ChevronRight size={22} strokeWidth={1.75} />
-        </button>
-      )}
-      {!zoomed && children && (
         <div
-          className="absolute inset-x-0 bottom-0"
-          style={{ ...chrome, fontFamily: F.body }}
-          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-0 overflow-hidden"
+          style={dropStyle}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}
         >
-          {children}
+          <div className="absolute inset-0" style={trackStyle}>
+            {panels.map((p) => {
+              const current = p.pos === 0;
+              const anim = p.src === firstSrc ? "lightbox-img " : "";
+              return (
+                <div
+                  key={p.src}
+                  ref={current ? scrollRef : undefined}
+                  aria-hidden={current ? undefined : "true"}
+                  className={`absolute inset-0 flex p-4 ${current ? "overflow-auto" : "overflow-hidden"}`}
+                  style={{ transform: p.pos ? `translateX(calc(${p.pos} * ${step}))` : undefined }}
+                >
+                  {p.video ? (
+                    current ? (
+                      <video
+                        key="playing"
+                        src={p.src}
+                        controls
+                        autoPlay
+                        playsInline
+                        aria-label={p.alt}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`${anim}m-auto`}
+                        style={{ maxWidth: "100%", maxHeight: "100%" }}
+                      />
+                    ) : (
+                      <video key="still" src={`${p.src}#t=0.1`} muted playsInline preload="metadata" className="m-auto" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+                    )
+                  ) : (
+                    <img
+                      ref={current ? imgRef : undefined}
+                      src={p.src}
+                      alt={current ? p.alt : ""}
+                      onClick={current ? toggleZoom : undefined}
+                      draggable={false}
+                      className={`${anim}m-auto select-none`}
+                      style={
+                        current && zoomed
+                          ? { width: "250%", maxWidth: "none", cursor: "zoom-out" }
+                          : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", cursor: current ? "zoom-in" : undefined }
+                      }
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      )}
-      {!zoomed && !children && (caption || !video) && (
-        <div
-          className="absolute inset-x-0 px-6 text-center pointer-events-none"
-          style={{ ...chrome, bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)", fontFamily: F.body }}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close photo"
+          className="absolute right-4 w-11 h-11 flex items-center justify-center rounded-full"
+          style={{ ...chrome, top: "calc(env(safe-area-inset-top, 0px) + 16px)", background: "rgba(10, 10, 10, 0.6)", color: "#F4F1EC" }}
         >
-          {caption && <p className="text-[13px] mb-1.5" style={{ color: "#F4F1EC" }}>{caption}</p>}
-          {!video && <p className="text-[11px]" style={{ color: "rgba(244, 241, 236, 0.6)" }}>Tap the photo to zoom</p>}
-        </div>
-      )}
-    </div>,
+          <X size={20} strokeWidth={1.75} />
+        </button>
+        {!zoomed && canPrev && (
+          <button type="button" aria-label="Previous photo" className={`${arrow} left-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(-1); }}>
+            <ChevronLeft size={22} strokeWidth={1.75} />
+          </button>
+        )}
+        {!zoomed && canNext && (
+          <button type="button" aria-label="Next photo" className={`${arrow} right-4`} style={arrowStyle} onClick={(e) => { e.stopPropagation(); go(1); }}>
+            <ChevronRight size={22} strokeWidth={1.75} />
+          </button>
+        )}
+        {!zoomed && children && (
+          <div
+            className="absolute inset-x-0 bottom-0"
+            style={{ ...chrome, fontFamily: F.body }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {children}
+          </div>
+        )}
+        {!zoomed && !children && (caption || !video) && (
+          <div
+            className="absolute inset-x-0 px-6 text-center pointer-events-none"
+            style={{ ...chrome, bottom: "calc(env(safe-area-inset-bottom, 0px) + 20px)", fontFamily: F.body }}
+          >
+            {caption && <p className="text-[13px] mb-1.5" style={{ color: "#F4F1EC" }}>{caption}</p>}
+            {!video && <p className="text-[11px]" style={{ color: "rgba(244, 241, 236, 0.6)" }}>Tap the photo to zoom</p>}
+          </div>
+        )}
+      </div>
+    </>,
     document.body
   );
 }
