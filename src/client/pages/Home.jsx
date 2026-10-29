@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MapPin, Clock, Shirt, Bell, Sparkles, ArrowRight, Plane, Users, Phone, Music } from "lucide-react";
-import { COLORS, F, EVENT_START, CAPS, DISPLAY_LUXE } from "../../shared/theme";
+import { COLORS, F, CAPS, DISPLAY_LUXE } from "../../shared/theme";
 import { Card, Eyebrow, SectionTitle, GoldButton, Badge, LintelDivider } from "../../shared/ui";
 import { useAuth } from "../../lib/auth";
 import { fetchItinerary, fetchAnnouncements, fetchSiteContent } from "../../lib/queries";
@@ -93,25 +93,6 @@ function LandmarkSlideshow() {
       </div>
     </div>
   );
-}
-
-function useCountdown(target) {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const diff = Math.max(0, target.getTime() - now.getTime());
-  return {
-    days: Math.floor(diff / 86400000),
-    hours: Math.floor((diff % 86400000) / 3600000),
-    minutes: Math.floor((diff % 3600000) / 60000),
-    seconds: Math.floor((diff % 60000) / 1000),
-  };
-}
-
-function pad(n) {
-  return String(n).padStart(2, "0");
 }
 
 const DAY_MS = 86400000;
@@ -227,8 +208,6 @@ export default function Home() {
   const now = new Date();
   const status = tripStatus(days, now);
   const nextActivity = days ? findNextActivity(days, now) : null;
-  const countdownTarget = days?.length ? dayStart(days[0].date) : EVENT_START;
-  const cd = useCountdown(countdownTarget);
 
   return (
     <div>
@@ -246,31 +225,6 @@ export default function Home() {
             {days?.length ? formatLongDateRange(days) : "28 October – 1 November 2026"}, Sharm El Sheikh
           </p>
         </div>
-
-        {status?.phase !== "after" && (
-          <div
-            className="mt-9 grid grid-cols-4"
-            style={{ borderTop: `1px solid ${COLORS.line}`, borderBottom: `1px solid ${COLORS.line}` }}
-            role="timer"
-            aria-label={`${cd.days} days, ${cd.hours} hours, ${cd.minutes} minutes until the trip`}
-          >
-            {[["Days", cd.days], ["Hours", cd.hours], ["Minutes", cd.minutes], ["Seconds", cd.seconds]].map(([label, val], i) => (
-              <div
-                key={label}
-                className="py-4 flex flex-col items-center"
-                style={{ borderLeft: i ? `1px solid ${COLORS.line}` : "none" }}
-                aria-hidden="true"
-              >
-                <span className="text-[34px] leading-none tabular-nums" style={{ ...DISPLAY_LUXE, color: COLORS.ivory }}>
-                  {pad(val)}
-                </span>
-                <span className="text-[8.5px] mt-2 font-semibold" style={{ fontFamily: F.body, color: COLORS.ivoryDim, ...CAPS, letterSpacing: "0.22em" }}>
-                  {label}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
 
         <div className="mt-8 flex gap-3">
           <GoldButton icon={ArrowRight} className="flex-1 flex-row-reverse" onClick={() => navigate("/itinerary")}>
